@@ -43,19 +43,19 @@ KTools UI is a Python application for batch converting files using **ktech** (te
    - Select one or more `.tex` files.
    - (Optional) You can choose if you want to skip if output PNG exists.
    - Click **Convert** to start. Click **Cancel** to interrupt.
-
+   ![ktech Tab](img/ktech_tab.png)
 3. **krane Tab (anim → scml):**
    - Select the krane folder.
    - Add one or more animation folders (each folder must include at least one `anim.bin`, one `.tex`, and one `build.bin`).
    - (Optional) You can choose if you want to skip if output files exists.
    - Click **Convert** to start. Click **Cancel** to interrupt.
-
+   ![krane Tab](img/krane_tab.png)
 4. **Crop Tab**
    - Select source folder that contain xml files and png fils.
    - Select output folder.
    - Enter image names that you want to crop, separated by comma or newline.
    - Click **Crop** to start.
-
+   ![crop Tab](img/crop_tab.png)
 ## Notes
 - The app remembers the last used folders in `ktoolsUI_config.ini` in the same directory.
 
