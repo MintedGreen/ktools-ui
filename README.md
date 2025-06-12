@@ -57,7 +57,7 @@ KTools UI is a Python application for batch converting files using **ktech** (te
    - Click **Crop** to start.
    ![crop Tab](img/crop_tab.png)
 ## Notes
-- The app remembers the last used folders in `ktoolsUI_config.ini` in the same directory.
+- The app remembers the last used folders in `ktools_ui_config.ini` in the same directory.
 
 ## Known Issues
 - In krane tab, only one folder can be selected at a time.

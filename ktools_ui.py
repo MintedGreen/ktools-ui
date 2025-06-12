@@ -4,10 +4,11 @@ import subprocess
 import os
 import threading
 import configparser
+from idlelib.tooltip import Hovertip
 from PIL import Image
 import xml.etree.ElementTree as ET
 
-CONFIG_FILE = "ktoolsUI_config.ini"
+CONFIG_FILE = "ktools_ui_config.ini"
 
 class AutoScrollbar(tk.Scrollbar):
     def set(self, lo, hi):
@@ -20,6 +21,30 @@ class AutoScrollbar(tk.Scrollbar):
         raise tk.TclError("cannot use pack with this widget")
     def place(self, **kw):
         raise tk.TclError("cannot use place with this widget")
+
+class CustomTooltip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tooltip = None
+        widget.bind("<Enter>", self.show_tooltip)
+        widget.bind("<Leave>", self.hide_tooltip)
+
+    def show_tooltip(self, event):
+        if self.tooltip:
+            return
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + 20
+        self.tooltip = tk.Toplevel(self.widget)
+        self.tooltip.wm_overrideredirect(True)
+        self.tooltip.geometry(f"+{x}+{y}")
+        label = tk.Label(self.tooltip, text=self.text, background="lightyellow", relief="solid", borderwidth=1)
+        label.pack()
+
+    def hide_tooltip(self, event):
+        if self.tooltip:
+            self.tooltip.destroy()
+            self.tooltip = None
 
 class KtechTab:
     def __init__(self, parent, config):
@@ -34,19 +59,21 @@ class KtechTab:
         parent.grid_rowconfigure(0, minsize=38)
         parent.grid_rowconfigure(1, minsize=38)
 
-        tk.Label(parent, text="ktech folder:").grid(row=0, column=0, sticky='e', padx=5, pady=5)
+        label = tk.Label(parent, text="ktech folder")
+        label.grid(row=0, column=0, sticky='e', padx=0, pady=5)
+        CustomTooltip(label, "Please select the folder containing the ktech executable.\nIf not selected, the default path will be used.")
         self.ktech_dir_var = tk.StringVar(value=last_ktech)
         self.ktech_entry = tk.Entry(parent, textvariable=self.ktech_dir_var)
         self.ktech_entry.grid(row=0, column=1, sticky='ew', padx=5, ipady=6)
         tk.Button(parent, text="Browse", command=self.select_ktech_dir, height=1).grid(row=0, column=2, padx=5, sticky='n')
 
-        tk.Label(parent, text="Output folder:").grid(row=1, column=0, sticky='e', padx=5, pady=5)
+        tk.Label(parent, text="Output folder").grid(row=1, column=0, sticky='e', padx=5, pady=5)
         self.output_dir_var = tk.StringVar(value=last_output)
         self.output_entry = tk.Entry(parent, textvariable=self.output_dir_var)
         self.output_entry.grid(row=1, column=1, sticky='ew', padx=5, ipady=6)
         tk.Button(parent, text="Browse", command=self.select_output_dir, height=1).grid(row=1, column=2, padx=5, sticky='n')
 
-        tk.Label(parent, text="Select tex files:").grid(row=2, column=0, sticky='ne', padx=5, pady=5)
+        tk.Label(parent, text="Select tex files").grid(row=2, column=0, sticky='ne', padx=5, pady=5)
         self.tex_files = []
         text_frame = tk.Frame(parent)
         text_frame.grid(row=2, column=1, sticky='nsew', padx=5)
@@ -140,16 +167,19 @@ class KtechTab:
         ktech_dir = self.ktech_dir_var.get()
         output_dir = self.output_dir_var.get()
         skip_existing = self.skip_var.get()
-        if not (ktech_dir and output_dir and self.tex_files):
+        if not (output_dir and self.tex_files):
             self.parent.after(0, lambda: messagebox.showerror("Error", "Please select all required folders and files."))
             self.parent.after(0, lambda: self.convert_btn.config(state="normal"))
             self.parent.after(0, lambda: self.status_label.config(text=""))
             self.parent.after(0, lambda: self.cancel_btn.config(state="disabled"))
             return
 
-        ktech_exe = os.path.join(ktech_dir, "ktech")
-        if os.name == 'nt':
-            ktech_exe += ".exe"
+        if ktech_dir:
+            ktech_exe = os.path.join(ktech_dir, "ktech")
+            if os.name == 'nt':
+                ktech_exe += ".exe"
+        else:
+            ktech_exe = "ktech"
 
         errors = []
         skipped = 0
@@ -218,13 +248,13 @@ class KraneTab:
         parent.grid_columnconfigure(2, minsize=80)
         parent.grid_rowconfigure(0, minsize=38)
 
-        tk.Label(parent, text="krane folder:").grid(row=0, column=0, sticky='e', padx=5, pady=5)
+        tk.Label(parent, text="krane folder").grid(row=0, column=0, sticky='e', padx=5, pady=5)
         self.krane_dir_var = tk.StringVar(value=last_krane)
         self.krane_entry = tk.Entry(parent, textvariable=self.krane_dir_var)
         self.krane_entry.grid(row=0, column=1, sticky='ew', padx=5, ipady=6)
         tk.Button(parent, text="Browse", command=self.select_krane_dir, height=1).grid(row=0, column=2, padx=5, sticky='n')
 
-        tk.Label(parent, text="Select anim folders:").grid(row=1, column=0, sticky='ne', padx=5, pady=5)
+        tk.Label(parent, text="Select anim folders").grid(row=1, column=0, sticky='ne', padx=5, pady=5)
         self.anim_folders = []
         text_frame = tk.Frame(parent)
         text_frame.grid(row=1, column=1, sticky='nsew', padx=5)
@@ -306,16 +336,19 @@ class KraneTab:
     def convert(self):
         krane_dir = self.krane_dir_var.get()
         skip_existing = self.skip_var.get()
-        if not (krane_dir and self.anim_folders):
+        if not self.anim_folders:
             self.parent.after(0, lambda: messagebox.showerror("Error", "Please select krane folder and anim folders."))
             self.parent.after(0, lambda: self.convert_btn.config(state="normal"))
             self.parent.after(0, lambda: self.status_label.config(text=""))
             self.parent.after(0, lambda: self.cancel_btn.config(state="disabled"))
             return
 
-        krane_exe = os.path.join(krane_dir, "krane")
-        if os.name == 'nt':
-            krane_exe += ".exe"
+        if krane_dir:
+            krane_exe = os.path.join(krane_dir, "krane")
+            if os.name == 'nt':
+                krane_exe += ".exe"
+        else:
+            krane_exe = "krane"
 
         errors = []
         skipped = 0
@@ -387,19 +420,19 @@ class CropTab:
         parent.grid_rowconfigure(1, minsize=38)
         parent.grid_rowconfigure(2, minsize=38)
 
-        tk.Label(parent, text="Image source folder:").grid(row=0, column=0, sticky='e', padx=5, pady=5)
+        tk.Label(parent, text="Image source folder").grid(row=0, column=0, sticky='e', padx=5, pady=5)
         self.source_dir_var = tk.StringVar(value=last_source)
         self.source_entry = tk.Entry(parent, textvariable=self.source_dir_var)
         self.source_entry.grid(row=0, column=1, sticky='ew', padx=5, ipady=6)
         tk.Button(parent, text="Browse", command=self.select_source_dir, height=1).grid(row=0, column=2, padx=5, sticky='n')
 
-        tk.Label(parent, text="Output folder:").grid(row=1, column=0, sticky='e', padx=5, pady=5)
+        tk.Label(parent, text="Output folder").grid(row=1, column=0, sticky='e', padx=5, pady=5)
         self.output_dir_var = tk.StringVar(value=last_output)
         self.output_entry = tk.Entry(parent, textvariable=self.output_dir_var)
         self.output_entry.grid(row=1, column=1, sticky='ew', padx=5, ipady=6)
         tk.Button(parent, text="Browse", command=self.select_output_dir, height=1).grid(row=1, column=2, padx=5, sticky='n')
 
-        icon_label = tk.Label(parent, text="Icon names:", anchor="ne", justify="right")
+        icon_label = tk.Label(parent, text="Icon names", anchor="ne", justify="right")
         icon_label.grid(row=2, column=0, sticky='ne', padx=5, pady=5)
         self.icon_names_text = tk.Text(parent, height=5, wrap='word')
         self.icon_names_text.grid(row=2, column=1, sticky='nsew', padx=5)
@@ -559,8 +592,8 @@ def on_tab_changed(event):
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("KTools - Multi Converter")
-    root.geometry("1000x700")
-    root.minsize(900, 600)
+    root.geometry("700x400")
+    root.minsize(600, 350)
     root.option_add("*Font", "Arial 12")
     style = ttk.Style()
     style.configure('TNotebook.Tab', font=('Arial', 12))
