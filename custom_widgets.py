@@ -66,7 +66,6 @@ class FileFolderSelector():
             fg="#666666", bg="white"
         )
         self.clear_btn.grid(row=0, column=1, sticky="ns")
-        print(f"Clear button created for {label_text}: {self.clear_btn}")
         
         # Browse button
         self.button = tk.Button(parent, text="Browse", command=self.select, height=1)

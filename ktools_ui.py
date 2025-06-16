@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import subprocess
+from subprocess import DEVNULL
 import os
 import threading
 import configparser
@@ -21,32 +22,95 @@ class BaseTab(tk.Frame):
         super().__init__(parent)
         self.parent = parent
         self.config = config
-        self.setup_common_ui()
-        # 其他共用初始化
+        self.parent.grid_columnconfigure(0, weight=0, minsize=90)
+        self.parent.grid_columnconfigure(1, weight=1, minsize=120)
+        self.parent.grid_columnconfigure(2, weight=0, minsize=80)
+        self.parent.grid_rowconfigure(0, minsize=38)
+        self.parent.grid_rowconfigure(1, minsize=38)
 
-    def setup_common_ui(self):
-        # 建立進度區、狀態標籤、檔案選擇等
+    def setup_common_ui(self, row, title_text, button_text, browse_command, browse, button_command, cancel_command, force64_option=False):
+        # Select input files row
+        self.setup_input_ui(row, title_text, browse_command, browse)
+
+        # skip, convert, cancel row
+        self.setup_skip_convert_ui(row+1, button_text, button_command, cancel_command, force64_option)
+
+        # status row
+        self.setup_status_ui(row+2)
+
+    def setup_input_ui(self, row, title, command, browse=True):
+        tk.Label(self.parent, text=title).grid(row=row, column=0, sticky='ne', padx=2, pady=5)
+
+        text_frame = tk.Frame(self.parent)
+        text_frame.grid(row=row, column=1, sticky='nsew', padx=3, pady=5)
+        text_frame.grid_rowconfigure(0, weight=1)
+        text_frame.grid_columnconfigure(0, weight=1)
+
+        self.input_text = tk.Text(text_frame, height=7, wrap='word')
+        self.input_text.grid(row=0, column=0, sticky='nsew')
+
+        self.scrollbar = AutoScrollbar(text_frame, orient="vertical", command=self.input_text.yview)
+        self.scrollbar.grid(row=0, column=1, sticky='ns')
+        self.input_text['yscrollcommand'] = self.scrollbar.set
+
+        if not browse:
+            return
+        tk.Button(self.parent, text="Browse", command=command).grid(row=row, column=2, padx=5, pady=5, sticky='n')
+
+    def setup_skip_convert_ui(self, row, text, command, cancel_command, force64_option=False):
+        # Skip, Convert/Crop, Cancel
+        self.skip_var = tk.IntVar(value=0)
+        action_frame = tk.Frame(self.parent)
+        action_frame.grid(row=row, column=1, sticky='we', pady=5)
+        action_frame.grid_columnconfigure(0, weight=1)
+        inner_row = 0
+
+        # Only appear at Crop tab
+        if force64_option:
+            self.force64_var = tk.IntVar(value=0)
+            self.force64_checkbox = tk.Checkbutton(action_frame, text="Force 64px crop", variable=self.force64_var)
+            self.force64_checkbox.grid(row=inner_row, column=0, sticky="w")
+            inner_row = inner_row + 1
+
+        self.skip_checkbox = tk.Checkbutton(
+            action_frame, text="Skip if output files exist",
+            variable=self.skip_var
+        )
+        self.skip_checkbox.grid(row=inner_row, column=0, sticky="w")
+
+        self.convert_btn = tk.Button(action_frame, text=text, command=command)
+        self.convert_btn.grid(row=inner_row, column=1, sticky="e", padx=5)
+        self.cancel_btn = tk.Button(action_frame, text="Cancel", command=cancel_command, state="disabled")
+        self.cancel_btn.grid(row=inner_row, column=2, sticky="e", padx=5)
+
+    def setup_status_ui(self, row):
+        self.status_frame = tk.Frame(self.parent)
+        self.status_frame.grid(row=row, column=1, columnspan=2, sticky='nsew', pady=(5, 0))
+
+        self.status_label = tk.Label(self.status_frame, text="", fg="green")
+        self.status_label.pack(side='top', anchor='w')
+
+        self.skipped_label = tk.Label(self.status_frame, text="", fg="gray")
+        self.skipped_label.pack(side='top', anchor='w')
         pass
 
-    def select_file(self, var, filetypes):
-        # 通用檔案選擇邏輯
-        pass
+    def show_error(self, msg):
+        self.parent.after(0, lambda: self.status_label.config(text=msg, fg="red"))
+        self.parent.after(0, lambda: self.set_converting_state(False))
 
-    def update_status(self, text, color):
-        # 統一狀態更新
-        pass
+    def set_converting_state(self, is_converting: bool):
+        if is_converting:
+            self.convert_btn.config(state="disabled")
+            self.cancel_btn.config(state="normal")
+        else:
+            self.convert_btn.config(state="normal")
+            self.cancel_btn.config(state="disabled")
 
 class KtechTab(BaseTab):
     def __init__(self, parent, config):
         super().__init__(parent, config)
         last_ktech = self.config.get("folders", KTECH_SOURCE, fallback="")
         last_output = self.config.get("folders", KTECH_OUTPUT, fallback="")
-
-        self.parent.grid_columnconfigure(0, weight=0, minsize=80)
-        self.parent.grid_columnconfigure(1, weight=1, minsize=120)
-        self.parent.grid_columnconfigure(2, weight=0, minsize=80)
-        self.parent.grid_rowconfigure(0, minsize=38)
-        parent.grid_rowconfigure(1, minsize=38)
 
         self.ktech_dir_var = tk.StringVar(value=last_ktech)
         self.ktech_selector = FileFolderSelector(
@@ -58,47 +122,12 @@ class KtechTab(BaseTab):
             parent, "Output folder", self.output_dir_var, config=self.config, key=KTECH_OUTPUT, row=1
         )
 
-        tk.Label(parent, text="Tex files").grid(row=2, column=0, sticky='ne', padx=2, pady=5)
-        self.tex_files = []
-
-        text_frame = tk.Frame(parent)
-        text_frame.grid(row=2, column=1, sticky='nsew', padx=3, pady=5)
-        text_frame.grid_rowconfigure(0, weight=1)
-        text_frame.grid_columnconfigure(0, weight=1)
-
-        self.tex_files_text = tk.Text(text_frame, height=7, wrap='none')
-        self.tex_files_text.grid(row=0, column=0, sticky='nsew')
-
-        self.scrollbar = AutoScrollbar(text_frame, orient="vertical", command=self.tex_files_text.yview)
-        self.scrollbar.grid(row=0, column=1, sticky='ns')
-        self.tex_files_text['yscrollcommand'] = self.scrollbar.set
-
-        tk.Button(parent, text="Browse", command=self.select_tex_files).grid(row=2, column=2, padx=5, pady=5, sticky='n')
-
-        self.skip_var = tk.IntVar(value=0)
-        action_frame = tk.Frame(parent)
-        action_frame.grid(row=3, column=1, sticky='w', pady=12)
-
-        self.skip_checkbox = tk.Checkbutton(
-            action_frame, text="Skip if output png files exist",
-            variable=self.skip_var
+        self.setup_common_ui(
+            2, "Tex files", "Convert", self.select_tex_files, 
+            True, self.start_convert, self.cancel_convert
         )
-        self.skip_checkbox.pack(side='left', padx=(0, 10))
-
-        self.convert_btn = tk.Button(action_frame, text="Convert", command=self.start_convert)
-        self.convert_btn.pack(side='left')
-        self.cancel_btn = tk.Button(action_frame, text="Cancel", command=self.cancel_convert, state="disabled")
-        self.cancel_btn.pack(side='left', padx=(10, 0))
-
-        # Progress frame with scrollable text
-        self.status_frame = tk.Frame(parent)
-        self.status_frame.grid(row=4, column=1, columnspan=2, sticky='nsew', pady=(5, 0))
-        self.status_label = tk.Label(self.status_frame, text="", fg="green")
-        self.status_label.pack(side='top', anchor='w')
-
-        self.skipped_label = tk.Label(self.status_frame, text="", fg="gray")
-        self.skipped_label.pack(side='top', anchor='w', pady=(0, 0))
-
+        self.tex_files = []
+        
         self._convert_thread = None
         self._cancel_flag = False
         self._current_proc = None
@@ -109,17 +138,16 @@ class KtechTab(BaseTab):
             filetypes=[("Klei TEX files", "*.tex")])
         if paths:
             self.tex_files = list(paths)
-            self.tex_files_text.config(state='normal')
-            self.tex_files_text.delete("1.0", tk.END)
+            self.input_text.config(state='normal')
+            self.input_text.delete("1.0", tk.END)
             for p in self.tex_files:
-                self.tex_files_text.insert(tk.END, os.path.basename(p) + "\n")
-            self.tex_files_text.config(state='disabled')
+                self.input_text.insert(tk.END, os.path.basename(p) + "\n")
+            self.input_text.config(state='disabled')
 
     def start_convert(self):
         self.status_label.config(text="Converting...", fg="blue")
         self.skipped_label.config(text="")
-        self.convert_btn.config(state="disabled")
-        self.cancel_btn.config(state="normal")
+        self.set_converting_state(True)
         self._cancel_flag = False
         self._convert_thread = threading.Thread(target=self.convert)
         self._convert_thread.start()
@@ -132,31 +160,26 @@ class KtechTab(BaseTab):
             except Exception:
                 pass
         self.status_label.config(text="Conversion cancelled.", fg="red")
-        self.cancel_btn.config(state="disabled")
-        self.convert_btn.config(state="normal")
+        self.set_converting_state(False)
 
     def update_progress(self, idx, text):
-        self.tex_files_text.config(state='normal')
-        self.tex_files_text.delete(f"{idx+1}.0", f"{idx+1}.end")
-        self.tex_files_text.insert(f"{idx+1}.0", text)
-        self.tex_files_text.config(state='disabled')
+        self.input_text.config(state='normal')
+        self.input_text.delete(f"{idx+1}.0", f"{idx+1}.end")
+        self.input_text.insert(f"{idx+1}.0", text)
+        self.input_text.config(state='disabled')
 
     def convert(self):
         ktech_dir = self.ktech_dir_var.get()
         output_dir = self.output_dir_var.get()
         skip_existing = self.skip_var.get()
         if not output_dir:
-            self.parent.after(0, lambda: self.convert_btn.config(state="normal"))
-            self.parent.after(0, lambda: self.status_label.config(text="Please select output folder.", fg="red"))
-            self.parent.after(0, lambda: self.cancel_btn.config(state="disabled"))
+            self.show_error("Please select output folder.")
             return
         if not self.tex_files:
-            self.parent.after(0, lambda: self.convert_btn.config(state="normal"))
-            self.parent.after(0, lambda: self.status_label.config(text="Please select tex files to convert.", fg="red"))
-            self.parent.after(0, lambda: self.cancel_btn.config(state="disabled"))
-            self.tex_files_text.config(state='normal')
-            self.tex_files_text.delete("1.0", tk.END)
-            self.tex_files_text.config(state='disabled')
+            self.show_error("Please select tex files to convert.")
+            self.input_text.config(state='normal')
+            self.input_text.delete("1.0", tk.END)
+            self.input_text.config(state='disabled')
             return
         if ktech_dir:
             ktech_exe = os.path.join(ktech_dir, "ktech")
@@ -171,25 +194,25 @@ class KtechTab(BaseTab):
                 break
             base = os.path.splitext(os.path.basename(tex_file))[0]
             out_png = os.path.join(output_dir, base + ".png")
-            line = f"{base}.tex - converting..."
+            line = f"{base}.tex - Converting..."
             self.parent.after(0, lambda i=idx, l=line: self.update_progress(i, l))
             if skip_existing and os.path.exists(out_png):
                 skipped += 1
-                line = f"{base}.tex - skipped"
+                line = f"{base}.tex - Skipped"
                 self.parent.after(0, lambda i=idx, l=line: self.update_progress(i, l))
                 continue
             cmd = f'"{ktech_exe}" "{tex_file}" "{output_dir}"'
             try:
-                self._current_proc = subprocess.Popen(cmd, shell=True)
+                self._current_proc = subprocess.Popen(cmd, shell=True, stdout=DEVNULL)
                 self._current_proc.wait()
                 if self._current_proc.returncode != 0:
                     errors.append(base + ".tex")
-                    line = f"{base}.tex - failed!"
+                    line = f"{base}.tex - Failed!"
                 else:
-                    line = f"{base}.tex - success!"
+                    line = f"{base}.tex - Success!"
             except Exception:
                 errors.append(base + ".tex")
-                line = f"{base}.tex - failed!"
+                line = f"{base}.tex - Failed!"
             finally:
                 self._current_proc = None
             self.parent.after(0, lambda i=idx, l=line: self.update_progress(i, l))
@@ -206,92 +229,60 @@ class KtechTab(BaseTab):
         else:
             self.parent.after(0, lambda: self.skipped_label.config(text=""))
         self.parent.after(0, self.clear_inputs)
-        self.parent.after(0, lambda: self.convert_btn.config(state="normal"))
-        self.parent.after(0, lambda: self.cancel_btn.config(state="disabled"))
+        self.parent.after(0, lambda: self.set_converting_state(False))
 
     def clear_inputs(self):
         self.tex_files = []
 
-class KraneTab:
+class KraneTab(BaseTab):
     def __init__(self, parent, config, ktech_tab_ref):
+        super().__init__(parent, config)
         self.parent = parent
         self.config = config
         self.ktech_tab_ref = ktech_tab_ref
         last_krane = self.config.get("folders", KRANE_SOURCE, fallback=ktech_tab_ref.ktech_dir_var.get() if ktech_tab_ref else "")
-
-        parent.grid_columnconfigure(0, minsize=130)
-        parent.grid_columnconfigure(1, weight=1)
-        parent.grid_columnconfigure(2, minsize=80)
-        parent.grid_rowconfigure(0, minsize=38)
 
         self.krane_dir_var = tk.StringVar(value=last_krane)
         self.krane_selector = FileFolderSelector(
             parent, "krane folder", self.krane_dir_var, config=self.config, key=KRANE_SOURCE, row=0
         )
 
-        tk.Label(parent, text="Anim folders").grid(row=1, column=0, sticky='ne', padx=5, pady=5)
+        self.setup_common_ui(
+            1, "Anim folders", "Convert", self.select_anim_folder, 
+            True, self.start_convert, self.cancel_convert
+        )
         self.anim_folders = []
 
-        text_frame = tk.Frame(parent)
-        text_frame.grid(row=1, column=1, sticky='nsew', padx=5)
-        text_frame.grid_rowconfigure(0, weight=1)
-        text_frame.grid_columnconfigure(0, weight=1)
-
-        self.anim_folders_text = tk.Text(text_frame, height=7, wrap='none')
-        self.anim_folders_text.grid(row=0, column=0, sticky='nsew')
-        self.scrollbar = AutoScrollbar(text_frame, orient="vertical", command=self.anim_folders_text.yview)
-        self.scrollbar.grid(row=0, column=1, sticky='ns')
-        self.anim_folders_text['yscrollcommand'] = self.scrollbar.set
-
-        tk.Button(parent, text="Browse", command=self.select_anim_folder).grid(row=1, column=2, padx=5, sticky='n')
-
-        self.skip_var = tk.IntVar(value=0)
-        action_frame = tk.Frame(parent)
-        action_frame.grid(row=2, column=1, sticky='w', pady=12)
-        self.skip_checkbox = tk.Checkbutton(
-            action_frame, text="Skip if output scml files exist",
-            variable=self.skip_var
-        )
-        self.skip_checkbox.pack(side='left', padx=(0, 10))
-
-        self.convert_btn = tk.Button(action_frame, text="Convert", command=self.start_convert)
-        self.convert_btn.pack(side='left')
-        self.cancel_btn = tk.Button(action_frame, text="Cancel", command=self.cancel_convert, state="disabled")
-        self.cancel_btn.pack(side='left', padx=(10, 0))
-
-        self.status_frame = tk.Frame(parent)
-        self.status_frame.grid(row=3, column=1, columnspan=2, sticky='w', pady=(5, 0))
-        self.status_label = tk.Label(self.status_frame, text="", fg="green")
-        self.status_label.pack(side='top', anchor='w')
-        self.progress_label = tk.Label(self.status_frame, text="", fg="black", justify="left", anchor="w")
-        self.progress_label.pack(side='top', anchor='w')
-        self.skipped_label = tk.Label(self.status_frame, text="", fg="gray")
-        self.skipped_label.pack(side='top', anchor='w', pady=(0, 0))
         self._convert_thread = None
         self._cancel_flag = False
         self._current_proc = None
+
     def select_anim_folder(self):
+        # path = os.path.basename(filedialog.askdirectory(title="Select an anim folder"))
         path = filedialog.askdirectory(title="Select an anim folder")
         if path and path not in self.anim_folders:
             self.anim_folders.append(path)
-            self.anim_folders_text.insert(tk.END, path + "\n")
-
-    def save_config(self):
-        if not self.config.has_section("folders"):
-            self.config.add_section("folders")
-        self.config.set("folders", "krane", self.krane_dir_var.get())
-        with open(CONFIG_FILE, "w") as f:
-            self.config.write(f)
+            self.input_text.config(state='normal')
+            self.input_text.delete("1.0", tk.END)
+            for folder in self.anim_folders:
+                self.input_text.insert(tk.END, os.path.basename(folder) + "\n")
+            self.input_text.config(state='disabled')
 
     def start_convert(self):
         self.status_label.config(text="Converting...", fg="blue")
         self.skipped_label.config(text="")
-        self.progress_label.config(text="")
-        self.convert_btn.config(state="disabled")
-        self.cancel_btn.config(state="normal")
+        self.set_converting_state(True)
         self._cancel_flag = False
         self._convert_thread = threading.Thread(target=self.convert)
         self._convert_thread.start()
+
+    def update_folder_status(self, idx, text):
+        self.input_text.config(state='normal')
+        line_content = self.input_text.get(f"{idx+1}.0", f"{idx+1}.end")
+        if line_content.strip(): 
+            self.input_text.delete(f"{idx+1}.0", f"{idx+1}.end")
+            self.input_text.insert(f"{idx+1}.0", text)
+        self.input_text.config(state='disabled')
 
     def cancel_convert(self):
         self._cancel_flag = True
@@ -301,17 +292,17 @@ class KraneTab:
             except Exception:
                 pass
         self.status_label.config(text="Conversion cancelled.", fg="red")
-        self.cancel_btn.config(state="disabled")
-        self.convert_btn.config(state="normal")
+        self.set_converting_state(False)
 
     def convert(self):
         krane_dir = self.krane_dir_var.get()
         skip_existing = self.skip_var.get()
+        
         if not self.anim_folders:
-            self.parent.after(0, lambda: messagebox.showerror("Error", "Please select krane folder and anim folders."))
-            self.parent.after(0, lambda: self.convert_btn.config(state="normal"))
-            self.parent.after(0, lambda: self.status_label.config(text=""))
-            self.parent.after(0, lambda: self.cancel_btn.config(state="disabled"))
+            self.show_error("Please select anim folders.")
+            self.input_text.config(state='normal')
+            self.input_text.delete("1.0", tk.END)
+            self.input_text.config(state='disabled')
             return
         if krane_dir:
             krane_exe = os.path.join(krane_dir, "krane")
@@ -321,36 +312,35 @@ class KraneTab:
             krane_exe = "krane"
         errors = []
         skipped = 0
-        progress_lines = []
-        for folder in self.anim_folders:
+        for idx, folder in enumerate(self.anim_folders):
             if self._cancel_flag:
                 break
+            base_name = os.path.basename(folder)
             output_dir = os.path.join(folder, "output")
             os.makedirs(output_dir, exist_ok=True)
-            scml_files = [f for f in os.listdir(output_dir) if f.endswith(".scml")]
-            line = f"{os.path.basename(folder)} - converting..."
-            progress_lines.append(line)
-            self.parent.after(0, lambda l="\n".join(progress_lines): self.progress_label.config(text=l))
-            if skip_existing and scml_files:
+
+            line = f"{base_name} - Converting..."
+            self.parent.after(0, lambda i=idx, l=line: self.update_folder_status(i, l))
+            if skip_existing and any(f.endswith(".scml") for f in os.listdir(output_dir)):
                 skipped += 1
-                progress_lines[-1] = f"{os.path.basename(folder)} - skipped"
-                self.parent.after(0, lambda l="\n".join(progress_lines): self.progress_label.config(text=l))
+                line = f"{base_name} - Skipped"
+                self.parent.after(0, lambda i=idx, l=line: self.update_folder_status(i, l))
                 continue
             cmd = f'"{krane_exe}" "{folder}" "{output_dir}"'
             try:
-                self._current_proc = subprocess.Popen(cmd, shell=True)
+                self._current_proc = subprocess.Popen(cmd, shell=True, stdout=DEVNULL)
                 self._current_proc.wait()
                 if self._current_proc.returncode != 0:
-                    errors.append(os.path.basename(folder))
-                    progress_lines[-1] = f"{os.path.basename(folder)} - failed!"
+                    errors.append(base_name)
+                    line = f"{base_name} - Failed!"
                 else:
-                    progress_lines[-1] = f"{os.path.basename(folder)} - success!"
+                    line = f"{base_name} - Success!"
             except Exception:
-                errors.append(os.path.basename(folder))
-                progress_lines[-1] = f"{os.path.basename(folder)} - failed!"
+                errors.append(base_name)
+                line = f"{base_name} - Failed!"
             finally:
                 self._current_proc = None
-            self.parent.after(0, lambda l="\n".join(progress_lines): self.progress_label.config(text=l))
+            self.parent.after(0, lambda i=idx, l=line: self.update_folder_status(i, l))
         if self._cancel_flag:
             self.parent.after(0, lambda: self.status_label.config(text="Conversion cancelled.", fg="red"))
         elif errors:
@@ -364,26 +354,18 @@ class KraneTab:
         else:
             self.parent.after(0, lambda: self.skipped_label.config(text=""))
         self.parent.after(0, self.clear_inputs)
-        self.parent.after(0, lambda: self.convert_btn.config(state="normal"))
-        self.parent.after(0, lambda: self.cancel_btn.config(state="disabled"))
+        self.parent.after(0, lambda: self.set_converting_state(False))
 
     def clear_inputs(self):
         self.anim_folders = []
-        self.anim_folders_text.delete("1.0", tk.END)
 
-class CropTab:
+class CropTab(BaseTab):
     def __init__(self, parent, config):
+        super().__init__(parent, config)
         self.parent = parent
         self.config = config
         last_source = self.config.get("folders", CROP_SOURCE, fallback="")
         last_output = self.config.get("folders", CROP_OUTPUT, fallback="")
-
-        parent.grid_columnconfigure(0, minsize=130)
-        parent.grid_columnconfigure(1, weight=1)
-        parent.grid_columnconfigure(2, minsize=80)
-        parent.grid_rowconfigure(0, minsize=38)
-        parent.grid_rowconfigure(1, minsize=38)
-        parent.grid_rowconfigure(2, minsize=38)
 
         self.source_dir_var = tk.StringVar(value=last_source)
         self.source_selector = FileFolderSelector(
@@ -395,81 +377,68 @@ class CropTab:
             parent, "Output folder", self.output_dir_var, config=self.config, key=CROP_OUTPUT, row=1
         )
 
-        icon_label = tk.Label(parent, text="Icon names", anchor="ne", justify="right")
-        icon_label.grid(row=2, column=0, sticky='ne', padx=5, pady=5)
-        self.icon_names_text = tk.Text(parent, height=5, wrap='word')
-        self.icon_names_text.grid(row=2, column=1, sticky='nsew', padx=5)
-        self.icon_names_scrollbar = AutoScrollbar(parent, orient="vertical", command=self.icon_names_text.yview)
-        self.icon_names_scrollbar.grid(row=2, column=1, sticky='nse')
-        self.icon_names_text['yscrollcommand'] = self.icon_names_scrollbar.set
+        self.setup_common_ui(
+            2, "Icon names", "Crop", None, False, self.start_crop, self.cancel_crop, force64_option=True
+        )
 
-        self.force64_var = tk.IntVar(value=0)
-        self.force64_checkbox = tk.Checkbutton(parent, text="Force 64px crop", variable=self.force64_var)
-        self.force64_checkbox.grid(row=3, column=1, sticky="w", padx=5)
+    def start_crop(self):
+        self.status_label.config(text="Cropping...", fg="blue")
+        self.skipped_label.config(text="")
+        self.set_converting_state(True)
+        self._cancel_flag = False
+        self._crop_thread = threading.Thread(target=self.crop_icons)
+        self._crop_thread.start()
 
-        # checkbox: skip if output files exist
-        self.skip_output_var = tk.IntVar(value=0)
-        self.skip_output_checkbox = tk.Checkbutton(parent, text="Skip if output files exist", variable=self.skip_output_var)
-        self.skip_output_checkbox.grid(row=4, column=1, sticky="w", padx=5)
-
-        action_frame = tk.Frame(parent)
-        action_frame.grid(row=5, column=1, sticky='e', pady=12)
-        self.crop_btn = tk.Button(action_frame, text="Crop", command=self.crop_icons)
-        self.crop_btn.pack(side='right')
-
-        self.status_frame = tk.Frame(parent)
-        self.status_frame.grid(row=6, column=1, columnspan=2, sticky='w', pady=(5, 0))
-        self.status_label = tk.Label(self.status_frame, text="", fg="green")
-        self.status_label.pack(side='top', anchor='w')
-        self.progress_label = tk.Label(self.status_frame, text="", fg="black", justify="left", anchor="w")
-        self.progress_label.pack(side='top', anchor='w')
+    def cancel_crop(self):
+        self._cancel_flag = True
+        self.status_label.config(text="Cropping cancelled.", fg="red")
+        self.set_converting_state(False)
+        
+    def update_progress(self, idx, text):
+        self.input_text.delete(f"{idx+1}.0", f"{idx+1}.end")
+        self.input_text.insert(f"{idx+1}.0", text)
 
     def crop_icons(self):
         source_dir = self.source_dir_var.get()
         output_dir = self.output_dir_var.get()
-        icon_names = self.icon_names_text.get("1.0", tk.END).strip()
+        icon_names = self.input_text.get("1.0", tk.END).strip().splitlines()
         force64 = self.force64_var.get() == 1
-        skip_output = self.skip_output_var.get() == 1
+        skip_output = self.skip_var.get() == 1
 
-        if not (source_dir and output_dir and icon_names):
-            self.status_label.config(text="Please select source/output folder and enter icon names.", fg="red")
-            self.progress_label.config(text="")
+        if not source_dir:
+            self.show_error("Please select source folder.")
+            return
+        if not output_dir:
+            self.show_error("Please select output folder.")
+            return
+        if not icon_names:
+            self.show_error("Please enter icon names.")
             return
 
         xml_files = [os.path.join(source_dir, f) for f in os.listdir(source_dir) if f.endswith(".xml")]
         if not xml_files:
-            self.status_label.config(text="No XML files found in source folder.", fg="red")
-            self.progress_label.config(text="file not found")
+            self.show_error("No XML files found in source folder.")
             return
 
         names = [
             n.strip().lower().replace(".tex", "") + ".tex"
-            for n in icon_names.replace('\n', ',').split(',')
+            for n in icon_names 
             if n.strip()
         ]
 
-        found_any = False
-        progress_lines = []
+        skipped = 0
         done_names = set()
-
-        for name in names:
+        for idx, name in enumerate(names):
+            if self._cancel_flag:
+                self.parent.after(0, lambda: self.status_label.config(text="Cropping cancelled.", fg="red"))
+                break
             if name in done_names:
                 continue
             found = False
             for xml_path in xml_files:
                 png_path = os.path.splitext(xml_path)[0] + ".png"
                 if not os.path.exists(png_path):
-                    # Try to find tex file and convert to png
-                    tex_path = os.path.splitext(xml_path)[0] + ".tex"
-                    if os.path.exists(tex_path):
-                        folder = os.path.dirname(tex_path)
-                        ktech_exe = "ktech.exe" if os.name == 'nt' else "ktech"
-                        cmd = f'"{ktech_exe}" "{tex_path}" "{folder}"'
-                        result = subprocess.run(cmd, shell=True, capture_output=True)
-                        if result.returncode != 0 or not os.path.exists(png_path):
-                            continue  # Conversion failed, skip
-                    else:
-                        continue  # No tex file, skip
+                    continue  # No png file, skip
                 image = Image.open(png_path)
                 width, height = image.size
                 tree = ET.parse(xml_path)
@@ -478,12 +447,12 @@ class CropTab:
                 for elem in elements:
                     icon_name = elem.attrib["name"].lower()
                     if icon_name == name:
-                        output_name = f"{name.replace('.tex', '')}.png"
-                        output_file = os.path.join(output_dir, output_name)
+                        base_name = os.path.splitext(name)[0]
+                        output_file = os.path.join(output_dir, base_name + ".png")
                         if skip_output and os.path.exists(output_file):
-                            progress_lines.append(f"{output_name} - skipped (already exists)")
+                            line = f"{base_name} - Skipped"
                             found = True
-                            found_any = True
+                            skipped += 1
                             break
                         if force64:
                             u1 = float(elem.attrib["u1"])
@@ -509,45 +478,46 @@ class CropTab:
                         cropped = image.crop((left, top, right, bottom))
                         os.makedirs(output_dir, exist_ok=True)
                         cropped.save(output_file)
+                        line = f"{base_name} - Success!"
                         found = True
-                        found_any = True
-                        progress_lines.append(f"{output_name} - success!")
-                        self.status_label.config(text="Cropping...", fg="blue")
-                        self.progress_label.config(text="\n".join(progress_lines))
                         break
                 if found:
                     break
             if not found:
-                progress_lines.append(f"{name.replace('.tex', '')} - file not found")
-                self.progress_label.config(text="\n".join(progress_lines))
+                line = f"{name.replace('.tex', '')} - File not found"
+            self.parent.after(0, lambda i=idx, l=line: self.update_progress(i, l))
             done_names.add(name)
-        if found_any:
-            self.status_label.config(text="Cropping completed.", fg="green")
+        if self._cancel_flag:
+            self.parent.after(0, lambda: self.status_label.config(text="Cropping cancelled.", fg="red"))
         else:
-            self.status_label.config(text="No icons found.", fg="red")
-        self.icon_names_text.delete("1.0", tk.END)
+            self.parent.after(0, lambda: self.status_label.config(text="Cropping completed.", fg="green"))
+            
+        if skipped > 0:
+            self.parent.after(0, lambda: self.skipped_label.config(
+                text=f"Skipped {skipped} file(s) because already exists."))
+        else:
+            self.parent.after(0, lambda: self.skipped_label.config(text=""))
+
+        self.parent.after(0, lambda: self.set_converting_state(False))
 
 # Focus management for restoring focus on tab switch, and clear selection on tab change
 last_focus_widget = [None]
 def on_tab_changed(event):
     notebook = event.widget
-    # Save currently focused widget
-    if last_focus_widget[0] is not None:
-        try:
-            last_focus_widget[0].selection_clear()
-        except Exception:
-            pass
     last_focus_widget[0] = notebook.focus_get()
     # Restore focus after tab change, and clear selection
     def restore_focus():
-        if last_focus_widget[0]:
-            try:
-                last_focus_widget[0].focus_set()
-                if isinstance(last_focus_widget[0], tk.Entry):
-                    last_focus_widget[0].selection_clear()
-            except Exception:
-                pass
-    notebook.after(10, restore_focus)
+        widget = last_focus_widget[0]
+        if widget and widget.winfo_exists() and widget.winfo_ismapped():
+            widget.focus_set()
+            if isinstance(widget, (tk.Entry, tk.Text)):
+                try:
+                    widget.selection_clear()
+                except Exception:
+                    pass
+        else:
+            notebook.after(30, restore_focus)
+    notebook.after(30, restore_focus)
 
 if __name__ == "__main__":
     root = tk.Tk()
